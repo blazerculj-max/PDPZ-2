@@ -1,139 +1,89 @@
 import streamlit as st
-import pandas as pd
 import plotly.graph_objects as go
 
-# Nastavitve strani za moderen videz
+# Nastavitve strani
 st.set_page_config(
-    page_title="PDPZ Analitik 2026",
-    page_icon="💰",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    page_title="PDPZ Analiza Odkupa",
+    page_icon="⚠️",
+    layout="centered"
 )
 
-# Stilsko oblikovanje s CSS
+# Naslov in uvod
+st.title("⚠️ Analiza enkratnega odkupa PDPZ")
 st.markdown("""
-    <style>
-    .main {
-        background-color: #f8f9fa;
-    }
-    .stMetric {
-        background-color: #ffffff;
-        padding: 15px;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    }
-    </style>
-    """, unsafe_allow_html=True)
+Ta kalkulator izračuna realni neto izplen enkratnega dviga sredstev, vključno z 
+**izstopnimi stroški**, **takojšnjo akontacijo** in **končnim poračunom dohodnine**.
+""")
 
-st.title("💰 Kalkulator PDPZ: Renta ali Enkratni odkup?")
-st.markdown("---")
-
-# --- STRANSKA VRSTICA ZA VHODNE PODATKE ---
+# --- STRANSKA VRSTICA ---
 with st.sidebar:
-    st.header("⚙️ Nastavitve izračuna")
-    
-    st_tip_nacrta = st.radio(
-        "Tip pokojninskega načrta:",
-        ("Novi (vplačila po 1.1.2013)", "Stari (vplačila pred 2013)")
-    )
-    
-    st_privarcevano = st.number_input("Skupna privarčevana sredstva (EUR)", value=25000, step=1000)
-    
-    st_redna_pokojnina = st.number_input(
-        "Vaša redna neto pokojnina (EUR/mesec)", 
-        value=1000, 
-        help="Potrebno za izračun dohodninskega razreda ob poračunu."
-    )
-    
-    st_leta_rente = st.slider("Doba prejemanja rente (leta)", 5, 30, 20)
-    
-    st.markdown("---")
-    st.info("ℹ️ **Predpostavke:**\n- Izstopni stroški: 1%\n- Akontacija dohodnine: 25%\n- Davčna osnova za rento: 50%")
+    st.header("Vhodni podatki")
+    st_tip = st.selectbox("Tip pokojninskega načrta", ["Stari (pred 2013)", "Novi (po 2013)"])
+    st_znesek = st.number_input("Bruto privarčevana sredstva (EUR)", value=20000, step=1000)
+    st_placa = st.number_input("Vaša letna neto pokojnina/plača (EUR)", value=12000, 
+                               help="Podatek je nujen za določitev vašega dohodninskega razreda.")
+    st_stroski_odstotek = st.slider("Izstopni stroški upravljavca (%)", 0.0, 5.0, 1.0)
 
-# --- LOGIKA IZRAČUNA ---
-
-# 1. Izračun za Enkratni Odkup
-stroski_odkup = st_privarcevano * 0.01
-osnova_za_davek = st_privarcevano - stroski_odkup
-akontacija_odkup = osnova_za_davek * 0.25
-
-# Funkcija za informativni izračun dohodnine (Lestvica 2025/2026)
-def informativna_dohodnina(letni_prejemki):
-    # Poenostavljena slovenska dohodninska lestvica
-    if letni_prejemki <= 9500: return letni_prejemki * 0.16
-    elif letni_prejemki <= 20000: return 1520 + (letni_prejemki - 9500) * 0.26
-    elif letni_prejemki <= 55000: return 4250 + (letni_prejemki - 20000) * 0.33
-    elif letni_prejemki <= 80000: return 15800 + (letni_prejemki - 55000) * 0.39
-    else: return 25550 + (letni_prejemki - 80000) * 0.50
-
-letna_redna_neto = st_redna_pokojnina * 12
-# Bruto ocena za redno pokojnino (približek)
-letna_redna_bruto = letna_redna_neto / 0.88 
-
-# Dohodnina brez odkupa vs z odkupom
-davek_brez_odkupa = informativna_dohodnina(letna_redna_bruto)
-davek_z_odkupom = informativna_dohodnina(letna_redna_bruto + osnova_za_davek)
-dejanski_davek_odkup = davek_z_odkupom - davek_brez_odkupa
-
-neto_odkup_koncni = st_privarcevano - stroski_odkup - dejanski_davek_odkup
-
-# 2. Izračun za Rento
-# Pri renti se v davčno osnovo šteje le 50% zneska
-letna_renta_bruto = st_privarcevano / st_leta_rente
-obdavčljiv_del_rente = letna_renta_bruto * 0.5
-akontacija_rente = obdavčljiv_del_rente * 0.25
-letna_renta_neto = letna_renta_bruto - akontacija_rente
-skupaj_rente_neto = letna_renta_neto * st_leta_rente
-
-# --- VIZUALNI PRIKAZ ---
-
-c1, c2 = st.columns(2)
-
-with c1:
-    st.subheader("🔴 Enkratni odkup")
-    st.metric("Neto na račun (po poračunu)", f"{neto_odkup_koncni:,.2f} EUR")
-    
-    labels = ['Neto izplačilo', 'Skupna dohodnina', 'Izstopni stroški']
-    values = [max(0, neto_odkup_koncni), dejanski_davek_odkup, stroski_odkup]
-    
-    fig1 = go.Figure(data=[go.Pie(labels=labels, values=values, hole=.4, marker_colors=['#2ecc71', '#e74c3c', '#34495e'])])
-    fig1.update_layout(showlegend=False, margin=dict(t=0, b=0, l=0, r=0))
-    st.plotly_chart(fig1, use_container_width=True)
-    
-    st.error(f"Država vam bo pri enkratnem dvigu vzela cca. **{dejanski_davek_odkup:,.2f} EUR** dohodnine.")
-
-with c2:
-    st.subheader("🟢 Mesečna renta")
-    st.metric("Neto mesečni dodatek", f"{letna_renta_neto/12:,.2f} EUR/mesec")
-    
-    # Primerjava skupnih zneskov skozi čas
-    fig2 = go.Figure()
-    fig2.add_trace(go.Bar(name='Enkratni odkup', x=['Skupno izplačilo'], y=[neto_odkup_koncni], marker_color='#e74c3c'))
-    fig2.add_trace(go.Bar(name='Vsota vseh rent', x=['Skupno izplačilo'], y=[skupaj_rente_neto], marker_color='#2ecc71'))
-    
-    fig2.update_layout(barmode='group', margin=dict(t=0, b=0, l=0, r=0))
-    st.plotly_chart(fig2, use_container_width=True)
-    
-    razlika = skupaj_rente_neto - neto_odkup_koncni
-    st.success(f"Z rento boste skupaj prejeli **{razlika:,.2f} EUR več** kot pri odkupu.")
-
-# --- DODATNA ANALIZA IZ VIROV (ZPIZ & GOV.SI) ---
-st.markdown("---")
-st.subheader("⚠️ Kritični opomniki glede na zakonodajo")
-
-col_a, col_b = st.columns(2)
-with col_a:
-    st.markdown(f"**Pravila za {st_tip_nacrta}:**")
-    if "Novi" in st_tip_nacrta:
-        st.write("• Enkraten dvig po ZPIZ-2 praviloma **ni mogoč**, razen če je znesek izjemno nizek ali gre za specifične pogoje.")
-        st.write("• Sredstva so namenjena izključno dodatni pokojnini.")
+# --- LOGIKA IZRAČUNA (Dohodninska lestvica 2026) ---
+def izracun_dohodnine_2026(bruto_osnova):
+    # Informativna lestvica (meje in stopnje)
+    if bruto_osnova <= 9500:
+        return bruto_osnova * 0.16
+    elif bruto_osnova <= 20000:
+        return 1520 + (bruto_osnova - 9500) * 0.26
+    elif bruto_osnova <= 55000:
+        return 4250 + (bruto_osnova - 20000) * 0.33
+    elif bruto_osnova <= 80000:
+        return 15800 + (bruto_osnova - 55000) * 0.39
     else:
-        st.write("• Pri starih načrtih lahko dvignete sredstva, vendar so davčno izjemno neugodna.")
-        st.write("• Obračuna se polna dohodnina po progresivni lestvici.")
+        return 25550 + (bruto_osnova - 80000) * 0.50
 
-with col_b:
-    st.markdown("**Zakaj je renta davčno boljša?**")
-    st.write("1. **50% olajšava:** Dohodnina se plača le od polovice zneska rente.")
-    st.write("2. **Ni progresivnega skoka:** Ker se prejemki razporedijo na 20 let, ne skočite v višji davčni razred, kot bi pri enkratnem dvigu.")
+# 1. Izstopni stroški
+izstopni_stroski = st_znesek * (st_stroski_odstotek / 100)
+osnova_za_davek = st_znesek - izstopni_stroski
 
-st.info("💡 **Nasvet:** Pred končno odločitvijo preverite informativni izračun pri svojem upravljavcu (Modra zavarovalnica, Sava, Triglav itd.), saj imajo lahko različne stroške vodenja rente.")
+# 2. Takojšnja akontacija (25%)
+akontacija = osnova_za_davek * 0.25
+
+# 3. Poračun dohodnine
+# Predpostavimo približen bruto iz redne pokojnine (neto / 0.88)
+letni_bruto_redno = st_placa / 0.88
+davek_brez_odkupa = izracun_dohodnine_2026(letni_bruto_redno)
+davek_z_odkupom = izracun_dohodnine_2026(letni_bruto_redno + osnova_za_davek)
+
+skupni_davek_na_odkup = davek_z_odkupom - davek_brez_odkupa
+poracun_naslednje_leto = skupni_davek_na_odkup - akontacija
+neto_izplen = st_znesek - izstopni_stroski - skupni_davek_na_odkup
+
+# --- PRIKAZ REZULTATOV ---
+st.subheader("Končni finančni rezultat")
+
+col1, col2, col3 = st.columns(3)
+col1.metric("Bruto znesek", f"{st_znesek:,.0f} €")
+col2.metric("Vsi davki in stroški", f"{st_znesek - neto_izplen:,.2f} €", delta_color="inverse")
+col3.metric("Dejanski NETO", f"{neto_izplen:,.2f} €")
+
+st.markdown("---")
+
+# Grafični prikaz razporeditve denarja
+labels = ['Neto izplačilo', 'Dohodnina (Akontacija)', 'Dohodnina (Poračun)', 'Izstopni stroški']
+values = [neto_izplen, akontacija, max(0, poracun_naslednje_leto), izstopni_stroski]
+
+fig = go.Figure(data=[go.Pie(labels=labels, values=values, hole=.4, 
+                             marker_colors=['#00CC96', '#EF553B', '#AB63FA', '#636EFA'])])
+fig.update_layout(title_text="Kam gre vaš denar?")
+st.plotly_chart(fig)
+
+# Podrobna tabela
+st.subheader("Razčlenitev stroškov")
+data = {
+    "Postavka": ["Bruto privarčevano", "Izstopni stroški", "Akontacija dohodnine (takoj)", "Predviden poračun (čez 1 leto)", "**Dejanski neto izplen**"],
+    "Znesek (EUR)": [f"{st_znesek:,.2f}", f"-{izstopni_stroski:,.2f}", f"-{akontacija:,.2f}", f"-{max(0, poracun_naslednje_leto):,.2f}", f"**{neto_izplen:,.2f}**"]
+}
+st.table(data)
+
+# Zakonodajni okvir (PISRS/ZPIZ)
+st.info(f"💡 **Pravno obvestilo (Vir: ZPIZ-2):** Pri {st_tip.lower()} načrtih velja, da enkratni odkup pomeni prekinitev zavarovanja. Celoten znesek (brez stroškov) se prišteje k vašim letnim prihodkom, kar vas lahko potisne v višji davčni razred.")
+
+if st_tip == "Novi (po 2013)":
+    st.warning("⚠️ **Pozor:** Po ZPIZ-2 enkratno izplačilo pri novih načrtih po zakonu sploh ni dovoljeno, razen če skupni znesek ne presega cca. 5.000 € (meja se spreminja) ali v primeru invalidnosti/smrti.")
