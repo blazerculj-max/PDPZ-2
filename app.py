@@ -2,81 +2,123 @@ import streamlit as st
 import plotly.graph_objects as go
 
 # Nastavitve strani
-st.set_page_config(page_title="PDPZ Upokojenski Kalkulator", layout="centered")
+st.set_page_config(
+    page_title="PDPZ Analitik: Enkratni Odkup",
+    page_icon="💰",
+    layout="centered"
+)
 
-st.title("💸 PDPZ Odkup z upoštevanjem olajšav")
-st.markdown("---")
+# Naslov aplikacije
+st.title("💰 Kalkulator dajatev pri enkratnem odkupu PDPZ")
+st.markdown("""
+Ta aplikacija analizira finančni učinek enkratnega dviga sredstev. 
+Upošteva **izstopne stroške**, **takojšnjo 25% akontacijo** in **končni letni poračun dohodnine**.
+""")
 
-# --- STRANSKA VRSTICA ---
+# --- STRANSKA VRSTICA (Vnos podatkov) ---
 with st.sidebar:
-    st.header("⚙️ Vhodni podatki")
-    st_tip = st.radio("Tip varčevanja:", ("Stari načrt / Individualno", "Novi kolektivni (po 2013)"))
-    st_znesek = st.number_input("Bruto znesek na PDPZ računu (EUR)", value=15000, step=1000)
-    st_neto_pokojnina = st.number_input("Vaša mesečna neto pokojnina (EUR)", value=800, step=50)
-    st_stroski_odstotek = st.slider("Izstopni stroški (%)", 0.5, 3.0, 1.0)
-
-# --- KONSTANTE 2026 (Predvideno) ---
-SPLOSNA_OLASAVA = 5500.0  # Informativni znesek za 2026
-UPOKOJENSKA_OLASAVA_STOPNJA = 0.135 # 13,5% od pokojnine
-
-# --- LOGIKA ---
-meja_novi_nacrt = 12000.0
-dovoljen_odkup = not (st_tip == "Novi kolektivni (po 2013)" and st_znesek > meja_novi_nacrt)
-
-if dovoljen_odkup:
-    # 1. Osnove
-    letna_neto_pokojnina = st_neto_pokojnina * 12
-    # Približek bruto pokojnine (pokojnine so manj obremenjene s prispevki kot plače)
-    letni_bruto_pokojnina = letna_neto_pokojnina / 0.95 
+    st.header("📋 Vnos podatkov")
     
-    izstopni_stroski = st_znesek * (st_stroski_odstotek / 100)
-    bruto_odkup_osnova = st_znesek - izstopni_stroski
+    st_tip_nacrta = st.radio(
+        "Tip varčevanja:",
+        ("Stari načrt / Individualno", "Novi kolektivni načrt (po 2013)")
+    )
     
-    # 2. Funkcija za dohodnino z upoštevanjem olajšav
-    def izracunaj_koncno_dohodnino(bruto_prihodek, je_pokojnina=True):
-        # Davčna osnova = Bruto - Splošna olajšava
-        davčna_osnova = max(0, bruto_prihodek - SPLOSNA_OLASAVA)
-        
-        # Izračun po lestvici
-        if davčna_osnova <= 9500: d = davčna_osnova * 0.16
-        elif davčna_osnova <= 20000: d = 1520 + (davčna_osnova - 9500) * 0.26
-        elif davčna_osnova <= 55000: d = 4250 + (davčna_osnova - 20000) * 0.33
-        else: d = 15800 + (davčna_osnova - 55000) * 0.39
-        
-        # Odšteti upokojensko olajšavo (13,5% od pokojnine, ne od odkupa!)
-        if je_pokojnina:
-            dejanska_upok_olajšava = letni_bruto_pokojnina * UPOKOJENSKA_OLASAVA_STOPNJA
-            d = max(0, d - dejanska_upok_olajšava)
-        return d
+    st_bruto_pdpz = st.number_input("Privarčevana sredstva (Bruto v EUR)", value=15000, step=1000)
+    
+    st_neto_pokojnina = st.number_input(
+        "Vaša mesečna neto pokojnina (EUR)", 
+        value=800,
+        help="Nujno za določitev davčnega razreda pri letnem poračunu dohodnine."
+    )
+    
+    st_stroski_p = st.slider("Izstopni stroški upravljavca (%)", 0.5, 3.0, 1.0)
+    
+    st.markdown("---")
+    st.info("💡 **Zakonodaja 2026:** Pri novih načrtih je odkup omejen na 12.000 €.")
 
-    # Izračun razlike
-    davek_brez_odkupa = izracunaj_koncno_dohodnino(letni_bruto_pokojnina)
-    davek_z_odkupom = izracunaj_koncno_dohodnino(letni_bruto_pokojnina + bruto_odkup_osnova)
+# --- LOGIKA PREVERJANJA (Omejitev 12.000 €) ---
+MEJA_NOVI = 12000.0
+is_legal = True
+if st_tip_nacrta == "Novi kolektivni načrt (po 2013)" and st_bruto_pdpz > MEJA_NOVI:
+    is_legal = False
+
+# --- IZRAČUN (Če je zakonito) ---
+if is_legal:
+    # 1. Izstopni stroški
+    izstopni_stroski = st_bruto_pdpz * (st_stroski_p / 100)
+    davčna_osnova_odkup = st_bruto_pdpz - izstopni_stroski
     
-    skupni_davek_odkup = davek_z_odkupom - davek_brez_odkupa
-    akontacija = bruto_odkup_osnova * 0.25
-    poracun = skupni_davek_odkup - akontacija
-    neto_izplen = st_znesek - izstopni_stroski - skupni_davek_odkup
+    # 2. Takojšnja akontacija (VEDNO 25% po zakonu)
+    akontacija_takoj = davčna_osnova_odkup * 0.25
+    izplačilo_na_trr_danes = davčna_osnova_odkup - akontacija_takoj
+    
+    # 3. Poračun dohodnine (Informativna lestvica 2026)
+    def izracun_dohodnine(bruto_osnova):
+        # Splošna olajšava (približek 5.500 €)
+        osnova = max(0, bruto_osnova - 5500)
+        if osnova <= 9500: return osnova * 0.16
+        elif osnova <= 20000: return 1520 + (osnova - 9500) * 0.26
+        elif osnova <= 55000: return 4250 + (osnova - 20000) * 0.33
+        else: return 15800 + (osnova - 55000) * 0.39
+
+    # Izračun progresije
+    letni_bruto_pokojnina = (st_neto_pokojnina * 12) / 0.95
+    davek_brez_odkupa = izracun_dohodnine(letni_bruto_obstojeci := letni_bruto_pokojnina)
+    davek_z_odkupom = izracun_dohodnine(letni_bruto_obstojeci + davčna_osnova_odkup)
+    
+    dejanski_skupni_davek_odkup = davek_z_odkupom - davek_brez_odkupa
+    poracun_furs = dejanski_skupni_davek_odkup - akontacija_takoj
+    končni_neto_izplen = st_bruto_pdpz - izstopni_stroski - dejanski_skupni_davek_odkup
 
     # --- VIZUALIZACIJA ---
-    st.subheader("Analiza neto izplena")
+    st.subheader("📊 Finančna razčlenitev")
     
     col1, col2 = st.columns(2)
-    col1.metric("Bruto na računu", f"{st_znesek:,.0f} €")
-    col2.metric("Dejanski neto izplen", f"{neto_izplen:,.2f} €")
+    with col1:
+        st.metric("Takojšnje izplačilo (na TRR)", f"{izplačilo_na_trr_danes:,.2f} €")
+        st.caption("Znesek po odštetju stroškov in 25% akontacije.")
+    with col2:
+        st.metric("Končni neto (po poračunu)", f"{končni_neto_izplen:,.2f} €")
+        st.caption("Dejanski znesek, ki vam ostane po enem letu.")
 
-    # Graf
+    # Grafika (Pita)
+    labels = ['Čisti neto izplen', 'Akontacija dohodnine (25%)', 'Poračun dohodnine (FURS)', 'Izstopni stroški']
+    values = [končni_neto_izplen, akontacija_takoj, max(0, poracun_furs), izstopni_stroski]
+    
     fig = go.Figure(data=[go.Pie(
-        labels=['Neto (vam ostane)', 'Dohodnina (takoj)', 'Dohodnina (poračun)', 'Stroški'],
-        values=[neto_izplen, akontacija, max(0, poracun), izstopni_stroski],
+        labels=labels, 
+        values=values, 
         hole=.4,
-        marker_colors=['#27ae60', '#f39c12', '#c0392b', '#2c3e50']
+        marker_colors=['#27ae60', '#f39c12', '#c0392b', '#2c3e50'],
+        textinfo='percent'
     )])
-    st.plotly_chart(fig)
+    fig.update_layout(showlegend=True, legend=dict(orientation="h", y=-0.1))
+    st.plotly_chart(fig, use_container_width=True)
 
-    st.write(f"### ⚠️ Vaša efektivna obdavčitev: **{( (st_znesek - neto_izplen) / st_znesek * 100):.1f}%**")
-    st.info(f"V izračunu je upoštevana splošna olajšava ({SPLOSNA_OLASAVA} €) in upokojenska olajšava (13,5%).")
+    # Opozorilo o poračunu
+    if poracun_furs > 0:
+        st.error(f"⚠️ **Pozor:** Zaradi progresivne lestvice boste ob letnem poračunu verjetno morali DOPLAČATI cca. **{poracun_furs:,.2f} €**.")
+    else:
+        st.success(f"✅ **Informacija:** Zaradi nižjih skupnih prihodkov bi vam FURS ob poračunu lahko vrnil cca. **{abs(poracun_furs):,.2f} €**.")
+
+    # Tabela
+    st.table({
+        "Postavka": ["Bruto stanje", "Izstopni stroški", "Takojšnja dohodnina (25%)", "Poračun dohodnine", "**Končni NETO**"],
+        "Znesek (EUR)": [f"{st_bruto_pdpz:,.2f}", f"-{izstopni_stroski:,.2f}", f"-{akontacija_takoj:,.2f}", f"{'-' if poracun_furs > 0 else '+'}{abs(poracun_furs):,.2f}", f"**{končni_neto_izplen:,.2f}**"]
+    })
 
 else:
-    st.error("❌ Odkup nad 12.000 € pri novih načrtih ni dovoljen.")
-    st.write("Skladno z ZPIZ-2 morate za ta znesek izbrati rento.")
+    # Prikaz blokade za nove načrte
+    st.error(f"❌ **Odkup ni dovoljen!**")
+    st.markdown(f"""
+    Skladno z **ZPIZ-2** enkratni odkup pri novih načrtih (vplačila po 2013) nad **{MEJA_NOVI:,.0f} €** ni mogoč.
+    
+    **Možnosti:**
+    - Dvignite znesek do {MEJA_NOVI} €, preostanek pa prenesite v rento.
+    - Celoten znesek koristite kot dosmrtno pokojninsko rento (davčno ugodneje).
+    """)
+
+# Noga aplikacije
+st.markdown("---")
+st.caption("Viri: ZPIZ, GOV.si in PISRS (Zakon o dohodnini ter ZPIZ-2). Izračun je informativen.")
